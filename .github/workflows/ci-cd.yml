@@ -1,0 +1,55 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build JAR with Maven
+        run: |
+          mvn -B clean package -DskipTests
+          # Copy the built JAR to app.jar for Docker compatibility
+          cp target/app.jar app.jar
+
+      - name: Decode EC2 SSH key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > ec2-key.pem
+          chmod 600 ec2-key.pem
+
+      - name: Copy files to EC2 via SCP
+        run: |
+          scp -i ec2-key.pem -o StrictHostKeyChecking=no app.jar ec2-user@${{ secrets.EC2_HOST }}:/home/ec2-user/
+          scp -i ec2-key.pem -o StrictHostKeyChecking=no Dockerfile ec2-user@${{ secrets.EC2_HOST }}:/home/ec2-user/
+          scp -i ec2-key.pem -o StrictHostKeyChecking=no docker-compose.yml ec2-user@${{ secrets.EC2_HOST }}:/home/ec2-user/
+
+      - name: Restart app via SSH
+        run: |
+          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} << 'EOF'
+            cd /home/ec2-user
+            docker-compose down
+            docker-compose up --build -d
+          EOF
+
+      - name: Wait for health check
+        run: |
+          echo "Waiting for http://${{ secrets.EC2_HOST }}:8092/actuator/health ..."
+          for i in {1..30}; do
+            if curl -fs http://${{ secrets.EC2_HOST }}:8092/actuator/health > /dev/null; then
+              echo "✅ Service is up!" && exit 0
+            fi
+            sleep 5
+          done
+          echo "❌ Service failed to start in time" && exit 1
