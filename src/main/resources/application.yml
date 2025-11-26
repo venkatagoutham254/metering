@@ -1,0 +1,76 @@
+spring:
+  application:
+    name: metering
+  # Primary datasource - metering_db (owns invoice tables)
+  datasource:
+    primary:
+      jdbc-url: ${PRIMARY_DATASOURCE_URL:jdbc:postgresql://localhost:5437/metering_db?options=-c%20TimeZone=UTC}
+      username: ${PRIMARY_DATASOURCE_USERNAME:postgres}
+      password: ${PRIMARY_DATASOURCE_PASSWORD:postgres}
+      driver-class-name: org.postgresql.Driver
+      hikari:
+        maximum-pool-size: 10
+        minimum-idle: 5
+        connection-init-sql: "SET TIME ZONE 'UTC'"
+        pool-name: MeteringDB-Pool
+    # Secondary datasource - data_ingestion_db (read ingestion_event)
+    secondary:
+      jdbc-url: ${SECONDARY_DATASOURCE_URL:jdbc:postgresql://localhost:5436/data_ingestion_db?options=-c%20TimeZone=UTC}
+      username: ${SECONDARY_DATASOURCE_USERNAME:postgres}
+      password: ${SECONDARY_DATASOURCE_PASSWORD:postgres}
+      driver-class-name: org.postgresql.Driver
+      hikari:
+        maximum-pool-size: 5
+        minimum-idle: 2
+        connection-init-sql: "SET TIME ZONE 'UTC'"
+        pool-name: IngestionDB-Pool
+        read-only: true
+  jpa:
+    hibernate:
+      ddl-auto: none  # Liquibase will manage schema
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    open-in-view: false
+  liquibase:
+    change-log: classpath:db/changelog/changelog-master.yml
+    enabled: true
+  jackson:
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: false
+    deserialization:
+      ADJUST_DATES_TO_CONTEXT_TIME_ZONE: false
+
+server:
+  port: 8092
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    aforo.metering: DEBUG
+    org.springframework.security: DEBUG
+
+aforo:
+  jwt:
+    secret: ${JWT_SECRET:change-me-please-change-me-32-bytes-min}
+  cors:
+    allowed-origins: "http://13.115.248.133,http://localhost:3000"
+    allowed-methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+    allowed-headers: "Authorization,Content-Type,X-Organization-Id"
+    allow-credentials: true
+  quickbooks-integration:
+    base-url: ${QUICKBOOKS_INTEGRATION_URL:http://localhost:8095}
+  clients:
+    billableMetrics:
+      baseUrl: http://34.238.49.158:8081
+    productRatePlan:
+      baseUrl: http://3.208.93.68:8080
+    subscription:
+      baseUrl: http://52.90.125.218:8084
+    customer:
+      baseUrl: http://44.201.19.187:8081

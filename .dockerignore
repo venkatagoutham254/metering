@@ -1,0 +1,18 @@
+# Maven
+target/
+!target/*.jar
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+
+# Node (if any)
+node_modules/

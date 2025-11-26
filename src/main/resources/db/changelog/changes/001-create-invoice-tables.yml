@@ -1,0 +1,169 @@
+databaseChangeLog:
+  - changeSet:
+      id: create-invoice-table
+      author: aforo
+      changes:
+        - createTable:
+            tableName: invoice
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+
+              - column:
+                  name: organization_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: customer_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: subscription_id
+                  type: BIGINT
+              - column:
+                  name: rate_plan_id
+                  type: BIGINT
+              - column:
+                  name: invoice_number
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: total_amount
+                  type: DECIMAL(19,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: model_type
+                  type: VARCHAR(50)
+              - column:
+                  name: billing_period_start
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: billing_period_end
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: notes
+                  type: VARCHAR(1000)
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+                  defaultValueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+
+        - createIndex:
+            indexName: idx_invoice_org_id
+            tableName: invoice
+            columns:
+              - column:
+                  name: organization_id
+
+        - createIndex:
+            indexName: idx_invoice_customer_id
+            tableName: invoice
+            columns:
+              - column:
+                  name: customer_id
+
+        - createIndex:
+            indexName: idx_invoice_subscription_id
+            tableName: invoice
+            columns:
+              - column:
+                  name: subscription_id
+
+        - createIndex:
+            indexName: idx_invoice_status
+            tableName: invoice
+            columns:
+              - column:
+                  name: status
+
+        - createIndex:
+            indexName: idx_invoice_number
+            tableName: invoice
+            columns:
+              - column:
+                  name: invoice_number
+
+  - changeSet:
+      id: create-invoice-line-item-table
+      author: aforo
+      changes:
+        - createTable:
+            tableName: invoice_line_item
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+
+              - column:
+                  name: invoice_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: line_number
+                  type: INTEGER
+                  constraints:
+                    nullable: false
+              - column:
+                  name: description
+                  type: VARCHAR(500)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: calculation
+                  type: VARCHAR(500)
+              - column:
+                  name: amount
+                  type: DECIMAL(19,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: quantity
+                  type: INTEGER
+              - column:
+                  name: unit_price
+                  type: DECIMAL(19,2)
+
+        - addForeignKeyConstraint:
+            baseTableName: invoice_line_item
+            baseColumnNames: invoice_id
+            constraintName: fk_line_item_invoice
+            referencedTableName: invoice
+            referencedColumnNames: id
+            onDelete: CASCADE
+
+        - createIndex:
+            indexName: idx_line_item_invoice_id
+            tableName: invoice_line_item
+            columns:
+              - column:
+                  name: invoice_id

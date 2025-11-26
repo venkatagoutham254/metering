@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: metering_postgres
+    environment:
+      POSTGRES_DB: metering_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5437:5432"
+    networks:
+      - metering-network
+    restart: always
+
+  app:
+    build: .
+    container_name: metering_app
+    ports:
+      - "8092:8092"
+    environment:
+      # Primary datasource - metering_db (owns invoice tables)
+      - PRIMARY_DATASOURCE_URL=jdbc:postgresql://postgres:5432/metering_db?options=-c%20TimeZone=UTC
+      - PRIMARY_DATASOURCE_USERNAME=postgres
+      - PRIMARY_DATASOURCE_PASSWORD=postgres
+      # Secondary datasource - data_ingestion_db (read ingestion_event)
+      # Points to newingestion's postgres on host (assumes newingestion is running)
+      - SECONDARY_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5436/data_ingestion_db?options=-c%20TimeZone=UTC
+      - SECONDARY_DATASOURCE_USERNAME=postgres
+      - SECONDARY_DATASOURCE_PASSWORD=postgres
+      # QuickBooks integration service URL - use host.docker.internal to reach host machine
+      - QUICKBOOKS_INTEGRATION_URL=http://host.docker.internal:8095
+    depends_on:
+      - postgres
+    networks:
+      - metering-network
+    restart: always
+
+networks:
+  metering-network:
+    driver: bridge
