@@ -25,12 +25,12 @@ services:
       - PRIMARY_DATASOURCE_USERNAME=postgres
       - PRIMARY_DATASOURCE_PASSWORD=postgres
       # Secondary datasource - data_ingestion_db (read ingestion_event)
-      # Points to newingestion's postgres on host (assumes newingestion is running)
-      - SECONDARY_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5436/data_ingestion_db?options=-c%20TimeZone=UTC
+      # Points to deployed newingestion postgres database
+      - SECONDARY_DATASOURCE_URL=jdbc:postgresql://54.175.109.188:5436/data_ingestion_db?options=-c%20TimeZone=UTC
       - SECONDARY_DATASOURCE_USERNAME=postgres
       - SECONDARY_DATASOURCE_PASSWORD=postgres
-      # QuickBooks integration service URL - use host.docker.internal to reach host machine
-      - QUICKBOOKS_INTEGRATION_URL=http://host.docker.internal:8095
+      # QuickBooks integration service URL - Production deployment
+      - QUICKBOOKS_INTEGRATION_URL=http://44.204.127.27:8095
     depends_on:
       - postgres
     networks:
