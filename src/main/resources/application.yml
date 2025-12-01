@@ -59,12 +59,14 @@ aforo:
   jwt:
     secret: ${JWT_SECRET:change-me-please-change-me-32-bytes-min}
   cors:
-    allowed-origins: "http://13.115.248.133,http://localhost:3000"
+    allowed-origins: "http://13.115.248.133,http://54.221.164.5,http://98.86.167.163:8092,http://localhost:3000"
     allowed-methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
     allowed-headers: "Authorization,Content-Type,X-Organization-Id"
     allow-credentials: true
   quickbooks-integration:
     base-url: ${QUICKBOOKS_INTEGRATION_URL:http://localhost:8095}
+  subscription-service:
+    base-url: ${SUBSCRIPTION_SERVICE_URL:http://52.90.125.218:8084}
   clients:
     billableMetrics:
       baseUrl: http://34.238.49.158:8081
