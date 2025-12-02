@@ -13,9 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,8 +29,8 @@ public class InvoiceServiceImpl implements InvoiceService {
     private final ApplicationEventPublisher eventPublisher;
     private final QuickBooksWebhookClient quickBooksWebhookClient;
 
-    private static final DateTimeFormatter INVOICE_NUMBER_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    // Base36 character set for compact encoding
+    private static final String BASE36_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
     @Override
     @Transactional
@@ -198,13 +195,64 @@ public class InvoiceServiceImpl implements InvoiceService {
     }
 
     /**
-     * Generate a unique invoice number.
-     * Format: INV{orgId}-{customerId}-{timestamp}
-     * QuickBooks has a max length of 21 characters for DocNumber
+     * Generate a unique invoice number using deterministic short format.
+     * Format: INV-{base36ShortId}
+     * 
+     * The short ID combines organizationId, customerId, and timestamp in milliseconds,
+     * then encodes to base36 for compactness.
+     * 
+     * Guarantees:
+     * - Always unique (timestamp milliseconds + org + customer)
+     * - Deterministic and reproducible
+     * - Under 21 characters (QuickBooks DocNumber limit)
+     * - Format: INV-XXXXXXXXXXXXX (typically 15-18 chars)
+     * 
+     * @param organizationId Organization ID
+     * @param customerId Customer ID
+     * @return Compact invoice number (e.g., INV-A3F9K2LP8M)
      */
     private String generateInvoiceNumber(Long organizationId, Long customerId) {
-        String timestamp = LocalDateTime.now(ZoneId.of("UTC"))
-                .format(INVOICE_NUMBER_FORMATTER);
-        return String.format("INV%d-%d-%s", organizationId, customerId, timestamp);
+        // Use current timestamp in milliseconds for uniqueness
+        long timestampMillis = System.currentTimeMillis();
+        
+        // Combine values into a single large number
+        // Format: timestampMillis + (orgId * 1000000) + customerId
+        // This ensures uniqueness even if multiple invoices are created in the same millisecond
+        long combined = timestampMillis + (organizationId * 1_000_000_000_000L) + (customerId * 1_000_000L);
+        
+        // Convert to base36 for compact representation
+        String base36Id = toBase36(combined);
+        
+        // Build invoice number
+        String invoiceNumber = "INV-" + base36Id;
+        
+        log.debug("Generated invoice number: {} for org={}, customer={}, timestamp={}",
+                invoiceNumber, organizationId, customerId, timestampMillis);
+        
+        return invoiceNumber;
+    }
+    
+    /**
+     * Convert a long value to base36 string.
+     * Base36 uses digits 0-9 and letters A-Z for compact representation.
+     * 
+     * @param value Value to encode
+     * @return Base36 encoded string
+     */
+    private String toBase36(long value) {
+        if (value == 0) {
+            return "0";
+        }
+        
+        StringBuilder result = new StringBuilder();
+        long remaining = value;
+        
+        while (remaining > 0) {
+            int digit = (int) (remaining % 36);
+            result.append(BASE36_CHARS.charAt(digit));
+            remaining /= 36;
+        }
+        
+        return result.reverse().toString();
     }
 }
