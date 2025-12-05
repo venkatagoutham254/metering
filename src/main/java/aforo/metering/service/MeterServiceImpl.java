@@ -1,7 +1,9 @@
 package aforo.metering.service;
 
 import aforo.metering.client.RatePlanClient;
+import aforo.metering.client.SubscriptionClient;
 import aforo.metering.client.dto.RatePlanDTO;
+import aforo.metering.client.dto.SubscriptionResponse;
 import aforo.metering.dto.MeterRequest;
 import aforo.metering.dto.MeterResponse;
 import aforo.metering.repository.UsageRepository;
@@ -22,28 +24,56 @@ public class MeterServiceImpl implements MeterService {
 
     private final UsageRepository usageRepository;
     private final RatePlanClient ratePlanClient;
+    private final SubscriptionClient subscriptionClient;
 
     @Override
     public MeterResponse estimate(MeterRequest request) {
-        if (request == null || request.getRatePlanId() == null)
-            throw new IllegalArgumentException("ratePlanId is required");
+        if (request == null)
+            throw new IllegalArgumentException("request is required");
+
+        Long orgId = TenantContext.requireOrganizationId();
+
+        Long subscriptionId = request.getSubscriptionId();
+        Long productId = request.getProductId();
+        Long ratePlanId = request.getRatePlanId();
+        Long metricId = request.getBillableMetricId();
+
+        if (subscriptionId != null) {
+            SubscriptionResponse subscription = subscriptionClient.getSubscription(subscriptionId);
+            if (subscription == null) {
+                throw new IllegalStateException("Subscription not found for id " + subscriptionId);
+            }
+            productId = subscription.getProductId();
+            Long subscriptionRatePlanId = subscription.getRatePlanId();
+            if (subscriptionRatePlanId == null) {
+                throw new IllegalStateException("Subscription " + subscriptionId + " has no rate plan");
+            }
+            ratePlanId = subscriptionRatePlanId;
+        }
+
+        if (ratePlanId == null) {
+            throw new IllegalArgumentException("Either subscriptionId or ratePlanId is required");
+        }
+
+        // 2) Fetch rate plan config
+        RatePlanDTO ratePlan = ratePlanClient.fetchRatePlan(ratePlanId);
+        if (ratePlan == null)
+            throw new IllegalStateException("Rate plan not found");
+
+        if (metricId == null) {
+            metricId = ratePlan.getBillableMetricId();
+        }
 
         // 1) Count billable events from ingestion_event table
-        Long orgId = TenantContext.requireOrganizationId();
         BigDecimal eventCount = usageRepository.countEvents(
                 orgId,
                 request.getFrom(),
                 request.getTo(),
-                request.getSubscriptionId(),
-                request.getProductId(),
-                null,
-                request.getBillableMetricId()
+                subscriptionId,
+                productId,
+                ratePlanId,
+                metricId
         );
-
-        // 2) Fetch rate plan config
-        RatePlanDTO ratePlan = ratePlanClient.fetchRatePlan(request.getRatePlanId());
-        if (ratePlan == null)
-            throw new IllegalStateException("Rate plan not found");
 
         int usage = eventCount.intValue(); // Each event counts as 1 unit
         List<MeterResponse.LineItem> lines = new ArrayList<>();

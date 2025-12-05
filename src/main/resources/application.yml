@@ -59,7 +59,7 @@ aforo:
   jwt:
     secret: ${JWT_SECRET:change-me-please-change-me-32-bytes-min}
   cors:
-    allowed-origins: "http://13.115.248.133,http://54.221.164.5,http://98.86.167.163:8092,http://localhost:3000"
+    allowed-origins: "http://13.115.248.133,http://54.221.164.5,http://98.86.167.163:8092,http://localhost:3000,http://aforo.space,https://aforo.space"
     allowed-methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
     allowed-headers: "Authorization,Content-Type,X-Organization-Id"
     allow-credentials: true

@@ -34,14 +34,14 @@ public class AutoMeteringService {
     private final SubscriptionClient subscriptionClient;
     
     /**
-     * Process metering for a specific subscription and rate plan.
+     * Process metering for a specific subscription.
      * This can be called immediately after ingestion completes.
      */
     @Async
-    public void processMeteringForSubscription(Long organizationId, String jwtToken, Long subscriptionId, Long ratePlanId, Instant from, Instant to) {
+    public void processMeteringForSubscription(Long organizationId, String jwtToken, Long subscriptionId, Instant from, Instant to) {
         try {
-            log.info("Starting automatic metering for organization {} subscription {} with rate plan {} from {} to {}", 
-                    organizationId, subscriptionId, ratePlanId, from, to);
+            log.info("Starting automatic metering for organization {} subscription {} from {} to {}", 
+                    organizationId, subscriptionId, from, to);
             
             // Set tenant context for the async thread (both org ID and JWT token)
             TenantContext.setOrganizationId(organizationId);
@@ -49,7 +49,6 @@ public class AutoMeteringService {
             
             MeterRequest request = MeterRequest.builder()
                     .subscriptionId(subscriptionId)
-                    .ratePlanId(ratePlanId)
                     .from(from)
                     .to(to)
                     .build();
@@ -65,14 +64,15 @@ public class AutoMeteringService {
                     // Fetch subscription details to get the correct customer ID
                     SubscriptionResponse subscription = subscriptionClient.getSubscription(subscriptionId);
                     Long customerId = subscription.getCustomerId();
+                    Long ratePlanId = subscription.getRatePlanId();
                     
                     if (customerId == null) {
                         log.error("Subscription {} has no customer ID, cannot create invoice", subscriptionId);
                         return;
                     }
                     
-                    log.info("Creating invoice for subscription {}, customer {}, organization {}",
-                            subscriptionId, customerId, organizationId);
+                    log.info("Creating invoice for subscription {}, rate plan {}, customer {}, organization {}",
+                            subscriptionId, ratePlanId, customerId, organizationId);
                     
                     Invoice invoice = invoiceService.createInvoiceFromMeterResponse(
                             response,
