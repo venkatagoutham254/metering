@@ -2,6 +2,7 @@ package aforo.metering.controller;
 
 import aforo.metering.dto.MeterRequest;
 import aforo.metering.dto.MeterResponse;
+import aforo.metering.dto.TriggerMeterRequest;
 import aforo.metering.service.MeterService;
 import aforo.metering.service.AutoMeteringService;
 import aforo.metering.tenant.TenantContext;
@@ -45,28 +46,23 @@ public class MeterController {
     @Operation(
             summary = "Trigger metering after ingestion",
             description = "Called by ingestion service after successful event processing")
-    public ResponseEntity<Map<String, String>> triggerMetering(@RequestBody Map<String, Object> payload) {
-        Long subscriptionId = payload.get("subscriptionId") != null ? 
-                Long.valueOf(payload.get("subscriptionId").toString()) : null;
-        Long ratePlanId = payload.get("ratePlanId") != null ? 
-                Long.valueOf(payload.get("ratePlanId").toString()) : null;
-        String fromStr = (String) payload.get("from");
-        String toStr = (String) payload.get("to");
-        
-        if (ratePlanId == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "ratePlanId is required"));
+    public ResponseEntity<Map<String, String>> triggerMetering(@RequestBody TriggerMeterRequest request) {
+        Long subscriptionId = request.getSubscriptionId();
+
+        if (subscriptionId == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "subscriptionId is required"));
         }
-        
-        Instant from = fromStr != null ? Instant.parse(fromStr) : Instant.now().minusSeconds(3600);
-        Instant to = toStr != null ? Instant.parse(toStr) : Instant.now();
-        
+
+        Instant from = request.getFrom() != null ? request.getFrom() : Instant.now().minusSeconds(3600);
+        Instant to = request.getTo() != null ? request.getTo() : Instant.now();
+
         // Capture organization ID and JWT token from current context before async call
         Long organizationId = TenantContext.getOrganizationId();
         String jwtToken = TenantContext.getJwtToken();
-        
+
         // Trigger async processing with organization ID and JWT token
-        autoMeteringService.processMeteringForSubscription(organizationId, jwtToken, subscriptionId, ratePlanId, from, to);
-        
+        autoMeteringService.processMeteringForSubscription(organizationId, jwtToken, subscriptionId, from, to);
+
         return ResponseEntity.accepted().body(Map.of(
                 "status", "accepted",
                 "message", "Metering calculation triggered"

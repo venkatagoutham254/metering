@@ -44,10 +44,7 @@ Request body:
 {
   "from": "2025-10-01T00:00:00Z",
   "to": "2025-11-01T00:00:00Z",
-  "ratePlanId": 777,
-  "subscriptionId": 9101,
-  "productId": 42,
-  "billableMetricId": 5555
+  "subscriptionId": 9101
 }
 ```
 
@@ -59,10 +56,9 @@ Triggers async metering calculation after ingestion completes.
 Request body:
 ```json
 {
-  "subscriptionId": 9101,
-  "ratePlanId": 777,
   "from": "2025-10-01T00:00:00Z",
-  "to": "2025-11-01T00:00:00Z"
+  "to": "2025-11-01T00:00:00Z",
+  "subscriptionId": 9101
 }
 ```
 

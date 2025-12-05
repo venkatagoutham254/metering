@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
 
@@ -17,12 +18,22 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MeterRequest {
+    @Schema(description = "Start of window (inclusive)", example = "2025-11-03T05:35:42.552Z")
     private Instant from;        // inclusive
+
+    @Schema(description = "End of window (exclusive)", example = "2025-11-28T05:35:42.552Z")
     private Instant to;          // exclusive
 
     // Filters – provide at least ratePlanId to price correctly
+    @Schema(description = "Subscription ID to meter for the given period", example = "1")
     private Long subscriptionId;
+
+    @Schema(hidden = true)
     private Long productId;
+
+    @Schema(hidden = true)
     private Long ratePlanId;
+
+    @Schema(hidden = true)
     private Long billableMetricId;
 }
