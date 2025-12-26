@@ -15,6 +15,7 @@ import java.util.List;
 public class MeterResponse {
 
     private String modelType;             // e.g. "FLATFEE", "USAGE_BASED" etc.
+    private Integer eventCount;           // number of events processed
     private List<LineItem> breakdown;     // detailed line items
     private BigDecimal total;             // final charge
 

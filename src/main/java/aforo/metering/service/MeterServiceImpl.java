@@ -220,6 +220,7 @@ public class MeterServiceImpl implements MeterService {
 
         return MeterResponse.builder()
                 .modelType(ratePlan.getBillingFrequency())
+                .eventCount(usage)
                 .breakdown(lines)
                 .total(total.setScale(2, RoundingMode.HALF_UP))
                 .build();

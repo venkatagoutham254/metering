@@ -4,7 +4,6 @@ import aforo.metering.client.SubscriptionClient;
 import aforo.metering.client.dto.SubscriptionResponse;
 import aforo.metering.dto.MeterRequest;
 import aforo.metering.dto.MeterResponse;
-import aforo.metering.entity.Invoice;
 import aforo.metering.repository.MeteringQueryRepository;
 import aforo.metering.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +21,7 @@ import java.util.List;
 /**
  * Service to automatically trigger metering calculations.
  * Can be called after ingestion completes or run on a schedule.
+ * Note: Invoice creation is handled separately by BillingCycleScheduler.
  */
 @Service
 @RequiredArgsConstructor
@@ -30,22 +30,85 @@ public class AutoMeteringService {
     
     private final MeterService meterService;
     private final MeteringQueryRepository meteringQueryRepository;
-    private final InvoiceService invoiceService;
     private final SubscriptionClient subscriptionClient;
     
     /**
-     * Process metering for a specific subscription.
-     * This can be called immediately after ingestion completes.
+     * Process metering for a specific subscription and return results synchronously.
+     * Used by trigger endpoint to show calculation results in response body.
+     * 
+     * Supports two modes:
+     * 1. Automatic mode: from/to are null -> uses subscription's current billing period
+     * 2. Manual mode: from/to are provided -> uses specified time range
+     * 
+     * @param organizationId Organization ID
+     * @param jwtToken JWT token for authentication
+     * @param subscriptionId Subscription ID to meter
+     * @param from Start time (optional - if null, uses subscription's billing period start)
+     * @param to End time (optional - if null, uses current time)
+     * @return MeterResponse with cost breakdown and line items
      */
-    @Async
-    public void processMeteringForSubscription(Long organizationId, String jwtToken, Long subscriptionId, Instant from, Instant to) {
+    public MeterResponse processMeteringForSubscriptionSync(Long organizationId, String jwtToken, Long subscriptionId, Instant from, Instant to) {
         try {
-            log.info("Starting automatic metering for organization {} subscription {} from {} to {}", 
-                    organizationId, subscriptionId, from, to);
-            
-            // Set tenant context for the async thread (both org ID and JWT token)
+            // Set tenant context
             TenantContext.setOrganizationId(organizationId);
             TenantContext.setJwtToken(jwtToken);
+            
+            // If from/to not provided, fetch subscription to get current billing period
+            if (from == null || to == null) {
+                log.info("Automatic metering mode: fetching subscription {} billing period", subscriptionId);
+                
+                try {
+                    SubscriptionResponse subscription = subscriptionClient.getSubscription(subscriptionId);
+                    
+                    // Use subscription's current billing period
+                    String billingPeriodStart = subscription.getCurrentBillingPeriodStart();
+                    String billingPeriodEnd = subscription.getCurrentBillingPeriodEnd();
+                    
+                    java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter
+                        .ofPattern("dd MMM, yyyy HH:mm z", java.util.Locale.ENGLISH);
+                    
+                    // Parse billing period start
+                    if (billingPeriodStart != null && !billingPeriodStart.isBlank()) {
+                        try {
+                            java.time.ZonedDateTime zdtStart = java.time.ZonedDateTime.parse(billingPeriodStart, formatter);
+                            from = zdtStart.toInstant();
+                            log.info("Using subscription billing period start: {}", from);
+                        } catch (Exception parseEx) {
+                            log.warn("Could not parse billing period start '{}', using fallback", billingPeriodStart);
+                            from = Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
+                        }
+                    } else {
+                        from = Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
+                        log.warn("Subscription {} has no billing period start, using 1 hour ago", subscriptionId);
+                    }
+                    
+                    // Parse billing period end
+                    if (billingPeriodEnd != null && !billingPeriodEnd.isBlank()) {
+                        try {
+                            java.time.ZonedDateTime zdtEnd = java.time.ZonedDateTime.parse(billingPeriodEnd, formatter);
+                            to = zdtEnd.toInstant();
+                            log.info("Using subscription billing period end: {}", to);
+                        } catch (Exception parseEx) {
+                            log.warn("Could not parse billing period end '{}', using current time", billingPeriodEnd);
+                            to = Instant.now();
+                        }
+                    } else {
+                        to = Instant.now();
+                        log.warn("Subscription {} has no billing period end, using current time", subscriptionId);
+                    }
+                    
+                    log.info("Automatic metering for subscription {} from {} to {} (subscription billing period)", 
+                            subscriptionId, from, to);
+                    
+                } catch (Exception e) {
+                    log.error("Failed to fetch subscription {} for billing period: {}", subscriptionId, e.getMessage());
+                    to = Instant.now();
+                    from = to.minus(1, java.time.temporal.ChronoUnit.HOURS);
+                    log.warn("Using fallback time range: {} to {}", from, to);
+                }
+            } else {
+                log.info("Manual metering mode for subscription {} from {} to {}", subscriptionId, from, to);
+            }
             
             MeterRequest request = MeterRequest.builder()
                     .subscriptionId(subscriptionId)
@@ -55,41 +118,103 @@ public class AutoMeteringService {
             
             MeterResponse response = meterService.estimate(request);
             
-            log.info("Metering completed for subscription {}. Total cost: {}", 
-                    subscriptionId, response.getTotal());
+            log.info("Metering completed for subscription {}. Total cost: {} for period {} to {}", 
+                    subscriptionId, response.getTotal(), from, to);
             
-            // Create invoice from metering result
-            if (organizationId != null && subscriptionId != null) {
+            return response;
+            
+        } catch (Exception e) {
+            log.error("Error processing metering for subscription {}: {}", subscriptionId, e.getMessage(), e);
+            throw new RuntimeException("Failed to process metering for subscription " + subscriptionId, e);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+    
+    /**
+     * Process metering for a specific subscription asynchronously (for background processing).
+     * This can be called immediately after ingestion completes.
+     * 
+     * Supports two modes:
+     * 1. Automatic mode: from/to are null -> uses subscription's current billing period
+     * 2. Manual mode: from/to are provided -> uses specified time range
+     * 
+     * @param organizationId Organization ID
+     * @param jwtToken JWT token for authentication
+     * @param subscriptionId Subscription ID to meter
+     * @param from Start time (optional - if null, uses subscription's billing period start)
+     * @param to End time (optional - if null, uses current time)
+     */
+    @Async
+    public void processMeteringForSubscription(Long organizationId, String jwtToken, Long subscriptionId, Instant from, Instant to) {
+        try {
+            // Set tenant context for the async thread (both org ID and JWT token)
+            TenantContext.setOrganizationId(organizationId);
+            TenantContext.setJwtToken(jwtToken);
+            
+            // If from/to not provided, fetch subscription to get current billing period
+            if (from == null || to == null) {
+                log.info("Automatic metering mode: fetching subscription {} billing period", subscriptionId);
+                
                 try {
-                    // Fetch subscription details to get the correct customer ID
                     SubscriptionResponse subscription = subscriptionClient.getSubscription(subscriptionId);
-                    Long customerId = subscription.getCustomerId();
-                    Long ratePlanId = subscription.getRatePlanId();
                     
-                    if (customerId == null) {
-                        log.error("Subscription {} has no customer ID, cannot create invoice", subscriptionId);
-                        return;
+                    // Use subscription's current billing period
+                    // Note: Subscription Service returns dates as Strings in format "26 Dec, 2025 11:07 IST"
+                    // For simplicity, we'll use subscription creation time (already ingested events are recent)
+                    String createdOnStr = subscription.getCreatedOn();
+                    
+                    if (createdOnStr != null && !createdOnStr.isBlank()) {
+                        // Parse custom format: "26 Dec, 2025 11:07 IST"
+                        // Since parsing this format is complex, we'll use a simpler approach:
+                        // Use subscription's creation date as approximate start of billing period
+                        try {
+                            java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter
+                                .ofPattern("dd MMM, yyyy HH:mm z", java.util.Locale.ENGLISH);
+                            java.time.ZonedDateTime zdt = java.time.ZonedDateTime.parse(createdOnStr, formatter);
+                            from = zdt.toInstant();
+                            log.info("Using subscription creation time as billing period start: {}", from);
+                        } catch (Exception parseEx) {
+                            log.warn("Could not parse subscription date '{}', using fallback", createdOnStr);
+                            from = Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
+                        }
+                    } else {
+                        // Fallback if creation date not available
+                        from = Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
+                        log.warn("Subscription {} has no creation date, using 1 hour ago", subscriptionId);
                     }
                     
-                    log.info("Creating invoice for subscription {}, rate plan {}, customer {}, organization {}",
-                            subscriptionId, ratePlanId, customerId, organizationId);
+                    // Use current time as 'to' for cumulative calculation
+                    to = Instant.now();
                     
-                    Invoice invoice = invoiceService.createInvoiceFromMeterResponse(
-                            response,
-                            organizationId,
-                            customerId, // Correct customer ID from subscription
-                            subscriptionId,
-                            ratePlanId,
-                            from,
-                            to
-                    );
-                    log.info("Invoice {} created for subscription {}. Total: {}",
-                            invoice.getInvoiceNumber(), subscriptionId, invoice.getTotalAmount());
+                    log.info("Automatic metering for subscription {} from {} to {} (current billing period)", 
+                            subscriptionId, from, to);
+                    
                 } catch (Exception e) {
-                    log.error("Failed to create invoice for subscription {}: {}",
-                            subscriptionId, e.getMessage(), e);
+                    log.error("Failed to fetch subscription {} for billing period: {}", subscriptionId, e.getMessage());
+                    // Fallback to 1 hour window
+                    to = Instant.now();
+                    from = to.minus(1, java.time.temporal.ChronoUnit.HOURS);
+                    log.warn("Using fallback time range: {} to {}", from, to);
                 }
+            } else {
+                log.info("Manual metering mode for subscription {} from {} to {}", subscriptionId, from, to);
             }
+            
+            MeterRequest request = MeterRequest.builder()
+                    .subscriptionId(subscriptionId)
+                    .from(from)
+                    .to(to)
+                    .build();
+            
+            MeterResponse response = meterService.estimate(request);
+            
+            log.info("Metering completed for subscription {}. Total cost: {} for period {} to {}", 
+                    subscriptionId, response.getTotal(), from, to);
+            
+            // Note: Invoice creation is commented out for now (will be handled by BillingCycleScheduler later)
+            // This webhook is only for calculating and viewing current usage
+            log.debug("Metering calculation complete. Invoice creation will be handled by billing cycle scheduler.");
             
         } catch (Exception e) {
             log.error("Error processing metering for subscription {}: {}", subscriptionId, e.getMessage(), e);
