@@ -40,36 +40,19 @@ public class UsageRepository {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*)::numeric FROM ingestion_event WHERE status = 'SUCCESS' AND organization_id = :org");
         sql.append(" AND timestamp >= :from AND timestamp < :to");
         if (subscriptionId != null) sql.append(" AND subscription_id = :sub");
-        // NOTE: Removed product_id, rate_plan_id, billable_metric_id filters
-        // Events are tagged with subscription_id, which already links to these entities
 
-        log.debug("╔════════════════════════════════════════════════════════════");
-        log.debug("║ USAGE QUERY DEBUG");
-        log.debug("╠════════════════════════════════════════════════════════════");
-        log.debug("║ SQL: {}", sql.toString());
-        log.debug("║ Parameters:");
-        log.debug("║   organization_id = {}", orgId);
-        log.debug("║   from            = {} ({})", from, from);
-        log.debug("║   to              = {} ({})", to, to);
-        log.debug("║   subscription_id = {}", subscriptionId);
-        log.debug("║   [IGNORED] product_id = {} (not used in query)", productId);
-        log.debug("║   [IGNORED] rate_plan_id = {} (not used in query)", ratePlanId);
-        log.debug("║   [IGNORED] billable_metric_id = {} (not used in query)", metricId);
-        log.debug("╚════════════════════════════════════════════════════════════");
+        log.debug("Counting events: org={}, subscription={}, from={}, to={}", orgId, subscriptionId, from, to);
 
         Query q = entityManager.createNativeQuery(sql.toString());
         q.setParameter("org", orgId.intValue());
         q.setParameter("from", from);
         q.setParameter("to", to);
         if (subscriptionId != null) q.setParameter("sub", subscriptionId.intValue());
-        // Removed parameter bindings for product_id, rate_plan_id, billable_metric_id
 
         Object single = q.getSingleResult();
         BigDecimal count = single != null ? (BigDecimal) single : BigDecimal.ZERO;
         
-        log.debug("╔════════════════════════════════════════════════════════════");
-        log.debug("║ QUERY RESULT: {} events found", count);
-        log.debug("╚════════════════════════════════════════════════════════════");
+        log.debug("Found {} events for subscription {}", count, subscriptionId);
         
         return count;
     }

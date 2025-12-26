@@ -23,7 +23,7 @@ public class TriggerMeterRequest {
             example = "2025-10-01T00:00:00Z")
     private Instant from;
 
-    @Schema(description = "End of window (exclusive). If not provided, uses current time.", 
+    @Schema(description = "End of window (exclusive). If not provided, uses subscription's current billing period end.", 
             example = "2025-11-01T00:00:00Z")
     private Instant to;
 }
