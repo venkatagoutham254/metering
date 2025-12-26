@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 /**
  * DTO for subscription response from subscription service.
  * Note: Date fields are String to handle external service's custom date format.
+ * Billing cycle fields added to support automatic metering.
  */
 @Data
 @Builder
@@ -27,4 +28,12 @@ public class SubscriptionResponse {
     private String productName;
     private String ratePlanName;
     private Long organizationId;
+    
+    // Billing cycle fields - kept as String to match Subscription Service format
+    private String currentBillingPeriodStart;  // Format: "26 Dec, 2025 11:07 IST"
+    private String currentBillingPeriodEnd;    // Format: "26 Jan, 2026 11:07 IST"
+    private String nextBillingTimestamp;       // Format: "26 Jan, 2026 11:07 IST"
+    private String billingAnchorInfo;
+    private Boolean autoRenew;
+    private String billingFrequency;
 }

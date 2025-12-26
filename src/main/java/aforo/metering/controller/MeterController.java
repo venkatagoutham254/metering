@@ -45,28 +45,25 @@ public class MeterController {
     @PostMapping("/trigger")
     @Operation(
             summary = "Trigger metering after ingestion",
-            description = "Called by ingestion service after successful event processing")
-    public ResponseEntity<Map<String, String>> triggerMetering(@RequestBody TriggerMeterRequest request) {
+            description = "Automatic metering trigger. If from/to not provided, uses subscription's current billing period. " +
+                         "Supports both automatic (subscriptionId only) and manual (with from/to) triggers. " +
+                         "Returns detailed cost breakdown with line items.",
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Success",
+                            content = @Content(schema = @Schema(implementation = MeterResponse.class)))
+            })
+    public ResponseEntity<MeterResponse> triggerMetering(@Valid @RequestBody TriggerMeterRequest request) {
         Long subscriptionId = request.getSubscriptionId();
 
-        if (subscriptionId == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "subscriptionId is required"));
-        }
-
-        Instant from = request.getFrom() != null ? request.getFrom() : Instant.now().minusSeconds(3600);
-        Instant to = request.getTo() != null ? request.getTo() : Instant.now();
-
-        // Capture organization ID and JWT token from current context before async call
+        // Capture organization ID and JWT token from current context
         Long organizationId = TenantContext.getOrganizationId();
         String jwtToken = TenantContext.getJwtToken();
 
-        // Trigger async processing with organization ID and JWT token
-        autoMeteringService.processMeteringForSubscription(organizationId, jwtToken, subscriptionId, from, to);
+        // Process metering synchronously to return results in response body
+        MeterResponse response = autoMeteringService.processMeteringForSubscriptionSync(
+                organizationId, jwtToken, subscriptionId, request.getFrom(), request.getTo());
 
-        return ResponseEntity.accepted().body(Map.of(
-                "status", "accepted",
-                "message", "Metering calculation triggered"
-        ));
+        return ResponseEntity.ok(response);
     }
     
     @PostMapping("/batch")
