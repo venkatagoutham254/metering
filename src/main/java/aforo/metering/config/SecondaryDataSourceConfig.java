@@ -8,7 +8,10 @@ import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 
@@ -47,5 +50,16 @@ public class SecondaryDataSourceConfig {
     public EntityManager secondaryEntityManager(
             @Qualifier("secondaryEntityManagerFactory") LocalContainerEntityManagerFactoryBean factory) {
         return factory.getObject().createEntityManager();
+    }
+
+    @Bean(name = "secondaryJdbcTemplate")
+    public JdbcTemplate secondaryJdbcTemplate(@Qualifier("secondaryDataSource") DataSource dataSource) {
+        return new JdbcTemplate(dataSource);
+    }
+
+    @Bean(name = "secondaryTransactionManager")
+    public PlatformTransactionManager secondaryTransactionManager(
+            @Qualifier("secondaryEntityManagerFactory") LocalContainerEntityManagerFactoryBean factory) {
+        return new JpaTransactionManager(factory.getObject());
     }
 }
