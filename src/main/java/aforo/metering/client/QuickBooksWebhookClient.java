@@ -22,7 +22,7 @@ public class QuickBooksWebhookClient {
 
     public QuickBooksWebhookClient(
             WebClient.Builder webClientBuilder,
-            @Value("${aforo.quickbooks-integration.base-url:http://localhost:8095}") String quickbooksBaseUrl) {
+            @Value("${aforo.quickbooks-integration.base-url:http://44.204.127.27:8095}") String quickbooksBaseUrl) {
         this.quickbooksBaseUrl = quickbooksBaseUrl;
         this.webClient = webClientBuilder.baseUrl(quickbooksBaseUrl).build();
         log.info("🔗 QuickBooks Integration Client initialized with base URL: {}", quickbooksBaseUrl);
@@ -33,8 +33,8 @@ public class QuickBooksWebhookClient {
      */
     public void notifyInvoiceCreated(Long invoiceId, Long organizationId, Long customerId, String invoiceNumber, BigDecimal totalAmount, String jwtToken) {
         try {
-            log.info("📤 Notifying QuickBooks integration about invoice {} for organization {}", 
-                    invoiceNumber, organizationId);
+            log.info("📤 Notifying QuickBooks integration about invoice {} for organization {} at {}", 
+                    invoiceNumber, organizationId, quickbooksBaseUrl);
 
             Map<String, Object> payload = new HashMap<>();
             payload.put("invoiceId", invoiceId);
@@ -51,13 +51,17 @@ public class QuickBooksWebhookClient {
                     .bodyToMono(Map.class)
                     .doOnSuccess(response -> 
                         log.info("✅ QuickBooks webhook called successfully for invoice {}", invoiceNumber))
-                    .doOnError(error -> 
-                        log.warn("⚠️ Failed to notify QuickBooks integration: {}", error.getMessage()))
+                    .doOnError(error -> {
+                        log.error("❌ FAILED to notify QuickBooks integration for invoice {}: {} - Invoice will NOT be synced to QuickBooks!", 
+                                invoiceNumber, error.getMessage());
+                        log.error("⚠️ QuickBooks service may be down or unreachable at: {}", quickbooksBaseUrl);
+                    })
                     .onErrorResume(error -> Mono.empty()) // Don't fail invoice creation if QB notification fails
                     .subscribe(); // Fire and forget
 
         } catch (Exception e) {
-            log.warn("⚠️ Error calling QuickBooks webhook for invoice {}: {}", invoiceNumber, e.getMessage());
+            log.error("❌ Error calling QuickBooks webhook for invoice {}: {} - Invoice will NOT be synced!", 
+                    invoiceNumber, e.getMessage());
             // Don't throw - this is a best-effort notification
         }
     }

@@ -83,7 +83,14 @@ public class SecurityConfig {
         // Parse allowed origins
         List<String> originPatterns;
         if (corsAllowedOrigins == null || corsAllowedOrigins.isBlank()) {
-            originPatterns = List.of("http://localhost:3000");
+            // Production frontends as fallback
+            originPatterns = List.of(
+                "http://aforo.space",
+                "https://aforo.space",
+                "http://13.115.248.133",
+                "http://54.221.164.5",
+                "http://98.86.167.163:8092"
+            );
         } else {
             originPatterns = Arrays.stream(corsAllowedOrigins.split(","))
                     .map(String::trim)
