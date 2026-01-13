@@ -89,7 +89,8 @@ public class SecurityConfig {
                 "https://aforo.space",
                 "http://13.115.248.133",
                 "http://54.221.164.5",
-                "http://98.86.167.163:8092"
+                "http://98.86.167.163:8092",
+                "http://localhost:3000"
             );
         } else {
             originPatterns = Arrays.stream(corsAllowedOrigins.split(","))
