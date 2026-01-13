@@ -304,6 +304,15 @@ public class BillingPeriodMonitorService {
      */
     private Instant parseDate(String dateStr) {
         try {
+            // Explicitly handle IST which is ambiguous (can be India, Ireland, Israel)
+            // We assume India Standard Time (UTC+05:30) for this application
+            if (dateStr != null && dateStr.endsWith(" IST")) {
+                String datePart = dateStr.substring(0, dateStr.length() - 4); // Remove " IST"
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd MMM, yyyy HH:mm", Locale.ENGLISH)
+                        .withZone(java.time.ZoneId.of("Asia/Kolkata"));
+                return ZonedDateTime.parse(datePart, formatter).toInstant();
+            }
+
             ZonedDateTime zonedDateTime = ZonedDateTime.parse(dateStr, DATE_FORMATTER);
             return zonedDateTime.toInstant();
         } catch (Exception e) {
