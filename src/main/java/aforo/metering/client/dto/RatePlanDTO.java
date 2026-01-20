@@ -42,26 +42,34 @@ public class RatePlanDTO {
     @Data
     public static class TieredPricingDTO {
         private List<TierDTO> tiers;
+        private BigDecimal overageUnitRate;
+        private Integer graceBuffer;
     }
     
     @Data
     public static class TierDTO {
+        @JsonAlias("startRange")
         private Integer minUnits;
+        @JsonAlias("endRange")
         private Integer maxUnits;
-        @JsonAlias("perUnitAmount")
+        @JsonAlias({"perUnitAmount", "unitPrice"})
         private BigDecimal pricePerUnit;
     }
     
     @Data
     public static class VolumePricingDTO {
         private List<VolumeTierDTO> tiers;
+        private BigDecimal overageUnitRate;
+        private Integer graceBuffer;
     }
     
     @Data
     public static class VolumeTierDTO {
+        @JsonAlias({"startRange", "usageStart"})
         private Integer minUnits;
+        @JsonAlias({"endRange", "usageEnd"})
         private Integer maxUnits;
-        @JsonAlias("perUnitAmount")
+        @JsonAlias({"perUnitAmount", "unitPrice"})
         private BigDecimal pricePerUnit;
     }
     
@@ -73,19 +81,28 @@ public class RatePlanDTO {
     
     @Data
     public static class StairStepPricingDTO {
+        @JsonAlias("tiers")
         private List<StepDTO> steps;
+        private BigDecimal overageUnitRate;
+        private Integer graceBuffer;
     }
     
     @Data
     public static class StepDTO {
+        @JsonAlias("usageStart")
         private Integer usageThresholdStart;
+        @JsonAlias("usageEnd")
         private Integer usageThresholdEnd;
+        @JsonAlias("flatCost")
         private BigDecimal monthlyCharge;
     }
     
     @Data
     public static class SetupFeeDTO {
+        @JsonAlias("setupFee")
         private BigDecimal amount;
+        private Integer applicationTiming;
+        private String invoiceDescription;
     }
     
     @Data
@@ -107,6 +124,8 @@ public class RatePlanDTO {
     
     @Data
     public static class MinimumCommitmentDTO {
+        @JsonAlias("minimumCharge")
         private BigDecimal minimumAmount;
+        private Integer minimumUsage;
     }
 }
