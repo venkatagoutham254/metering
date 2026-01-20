@@ -9,6 +9,7 @@ import aforo.metering.dto.MeterResponse;
 import aforo.metering.repository.UsageRepository;
 import aforo.metering.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -20,6 +21,7 @@ import java.time.LocalDate;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MeterServiceImpl implements MeterService {
 
     private final UsageRepository usageRepository;
@@ -37,6 +39,10 @@ public class MeterServiceImpl implements MeterService {
         Long productId = request.getProductId();
         Long ratePlanId = request.getRatePlanId();
         Long metricId = request.getBillableMetricId();
+        
+        // Variables to hold the actual from/to dates to use
+        java.time.Instant from = request.getFrom();
+        java.time.Instant to = request.getTo();
 
         if (subscriptionId != null) {
             SubscriptionResponse subscription = subscriptionClient.getSubscription(subscriptionId);
@@ -49,6 +55,56 @@ public class MeterServiceImpl implements MeterService {
                 throw new IllegalStateException("Subscription " + subscriptionId + " has no rate plan");
             }
             ratePlanId = subscriptionRatePlanId;
+            
+            // AUTO-DETECTION: If from/to not provided, use subscription's current billing period
+            if (from == null || to == null) {
+                log.info("Automatic metering mode: fetching subscription {} billing period", subscriptionId);
+                
+                try {
+                    // Use subscription's current billing period
+                    String billingPeriodStart = subscription.getCurrentBillingPeriodStart();
+                    String billingPeriodEnd = subscription.getCurrentBillingPeriodEnd();
+                    
+                    // Parse billing period start
+                    if (billingPeriodStart != null && !billingPeriodStart.isBlank()) {
+                        try {
+                            from = parseSubscriptionDateTime(billingPeriodStart);
+                            log.info("Using subscription billing period start: {} (UTC)", from);
+                        } catch (Exception parseEx) {
+                            log.warn("Could not parse billing period start '{}', using fallback: {}", billingPeriodStart, parseEx.getMessage());
+                            from = java.time.Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
+                        }
+                    } else {
+                        from = java.time.Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
+                        log.warn("Subscription {} has no billing period start, using 1 hour ago", subscriptionId);
+                    }
+                    
+                    // Parse billing period end
+                    if (billingPeriodEnd != null && !billingPeriodEnd.isBlank()) {
+                        try {
+                            to = parseSubscriptionDateTime(billingPeriodEnd);
+                            log.info("Using subscription billing period end: {} (UTC)", to);
+                        } catch (Exception parseEx) {
+                            log.warn("Could not parse billing period end '{}', using current time: {}", billingPeriodEnd, parseEx.getMessage());
+                            to = java.time.Instant.now();
+                        }
+                    } else {
+                        to = java.time.Instant.now();
+                        log.warn("Subscription {} has no billing period end, using current time", subscriptionId);
+                    }
+                    
+                    log.info("Automatic metering for subscription {} from {} to {} (subscription billing period)", 
+                            subscriptionId, from, to);
+                    
+                } catch (Exception e) {
+                    log.error("Failed to fetch subscription {} billing period details: {}", subscriptionId, e.getMessage());
+                    to = java.time.Instant.now();
+                    from = to.minus(1, java.time.temporal.ChronoUnit.HOURS);
+                    log.warn("Using fallback time range: {} to {}", from, to);
+                }
+            } else {
+                log.info("Manual metering mode for subscription {} from {} to {}", subscriptionId, from, to);
+            }
         }
 
         if (ratePlanId == null) {
@@ -67,8 +123,8 @@ public class MeterServiceImpl implements MeterService {
         // 1) Count billable events from ingestion_event table
         BigDecimal eventCount = usageRepository.countEvents(
                 orgId,
-                request.getFrom(),
-                request.getTo(),
+                from,
+                to,
                 subscriptionId,
                 productId,
                 ratePlanId,
@@ -233,6 +289,8 @@ public class MeterServiceImpl implements MeterService {
         List<RatePlanDTO.TierDTO> tiers = new ArrayList<>(dto.getTiers());
         tiers.sort(Comparator.comparingInt(t -> t.getMinUnits() != null ? t.getMinUnits() : 0));
         int remaining = usage;
+        
+        // Calculate usage for each tier
         for (RatePlanDTO.TierDTO t : tiers) {
             if (remaining <= 0) break;
             int min = t.getMinUnits() != null ? t.getMinUnits() : 0;
@@ -246,6 +304,25 @@ public class MeterServiceImpl implements MeterService {
                 remaining -= units;
             }
         }
+        
+        // Handle overage units beyond the last tier
+        if (remaining > 0 && dto.getOverageUnitRate() != null && dto.getOverageUnitRate().compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal overageRate = dto.getOverageUnitRate();
+            BigDecimal overageAmt = overageRate.multiply(BigDecimal.valueOf(remaining));
+            
+            // Find the last tier's max to show proper range in label
+            int lastTierMax = tiers.isEmpty() ? 0 : 
+                (tiers.get(tiers.size() - 1).getMaxUnits() != null ? tiers.get(tiers.size() - 1).getMaxUnits() : 0);
+            int overageStart = lastTierMax + 1;
+            int overageEnd = overageStart + remaining - 1;
+            
+            items.add(build("Overage Units (" + overageStart + "-" + overageEnd + ")", 
+                           remaining + " * " + overageRate, overageAmt));
+            tot = tot.add(overageAmt);
+            log.info("Applied overage rate: {} units beyond tier at {} per unit = {}", 
+                    remaining, overageRate, overageAmt);
+        }
+        
         return new PricingResult(items, tot);
     }
 
@@ -255,37 +332,111 @@ public class MeterServiceImpl implements MeterService {
         RatePlanDTO.VolumeTierDTO chosen = null;
         List<RatePlanDTO.VolumeTierDTO> tiers = new ArrayList<>(dto.getTiers());
         tiers.sort(Comparator.comparingInt(t -> t.getMinUnits() != null ? t.getMinUnits() : 0));
+        
+        // Volume pricing: ALL units are charged at ONE rate based on which tier the total usage falls into
         for (RatePlanDTO.VolumeTierDTO t : tiers) {
             int min = t.getMinUnits() != null ? t.getMinUnits() : 0;
             int max = t.getMaxUnits() != null ? t.getMaxUnits() : Integer.MAX_VALUE;
-            if (usage >= min && usage <= max) { chosen = t; break; }
+            if (usage >= min && usage <= max) { 
+                chosen = t; 
+                log.info("Volume pricing: {} units falls into tier {}-{} @ {} per unit", 
+                        usage, min, max, t.getPricePerUnit());
+                break; 
+            }
         }
-        if (chosen == null && !tiers.isEmpty()) chosen = tiers.get(tiers.size()-1);
+        
+        // Check if usage exceeds all defined tiers (overage scenario) or is below all tiers
+        if (chosen == null && !tiers.isEmpty()) {
+            int firstTierMin = tiers.get(0).getMinUnits() != null ? tiers.get(0).getMinUnits() : 0;
+            int lastTierMax = tiers.get(tiers.size() - 1).getMaxUnits() != null ? 
+                              tiers.get(tiers.size() - 1).getMaxUnits() : 0;
+            
+            // Usage is below the first tier's minimum
+            if (usage < firstTierMin) {
+                log.info("Volume pricing: {} units is below first tier (min: {}), charging 0", usage, firstTierMin);
+                // Don't choose any tier, leave total as 0
+            }
+            // Usage exceeds all tiers - apply overage rate
+            else if (usage > lastTierMax && dto.getOverageUnitRate() != null && 
+                dto.getOverageUnitRate().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal overageRate = dto.getOverageUnitRate();
+                tot = overageRate.multiply(BigDecimal.valueOf(usage));
+                items.add(build("Volume Overage Charge", usage + " * " + overageRate, tot));
+                log.info("Volume pricing overage: {} units exceed last tier, charged at {} per unit", 
+                        usage, overageRate);
+            } else {
+                // Fallback to last tier if no overage rate defined
+                chosen = tiers.get(tiers.size() - 1);
+                log.warn("Volume pricing: {} units exceed last tier, using last tier rate as fallback", usage);
+            }
+        }
+        
         if (chosen != null) {
             BigDecimal price = chosen.getPricePerUnit() != null ? chosen.getPricePerUnit() : BigDecimal.ZERO;
+            int min = chosen.getMinUnits() != null ? chosen.getMinUnits() : 0;
+            int max = chosen.getMaxUnits() != null ? chosen.getMaxUnits() : Integer.MAX_VALUE;
             tot = price.multiply(BigDecimal.valueOf(usage));
-            items.add(build("Volume Charge", usage + " * " + price, tot));
+            items.add(build("Volume Charge (Tier " + min + "-" + max + ")", usage + " * " + price, tot));
         }
+        
         return new PricingResult(items, tot);
     }
 
     private PricingResult calcStair(RatePlanDTO.StairStepPricingDTO dto, int usage) {
         List<MeterResponse.LineItem> items = new ArrayList<>();
         BigDecimal tot = BigDecimal.ZERO;
+        
+        // Null safety check
+        if (dto.getSteps() == null || dto.getSteps().isEmpty()) {
+            log.warn("Stair step pricing has no steps defined");
+            return new PricingResult(items, tot);
+        }
+        
         RatePlanDTO.StepDTO chosen = null;
         List<RatePlanDTO.StepDTO> steps = new ArrayList<>(dto.getSteps());
         steps.sort(Comparator.comparingInt(s -> s.getUsageThresholdStart() != null ? s.getUsageThresholdStart() : 0));
+        
+        // Stair step pricing: Charge a flat fee based on which step the usage falls into
         for (RatePlanDTO.StepDTO s : steps) {
             int start = s.getUsageThresholdStart() != null ? s.getUsageThresholdStart() : 0;
             int end = s.getUsageThresholdEnd() != null ? s.getUsageThresholdEnd() : Integer.MAX_VALUE;
-            if (usage >= start && usage <= end) { chosen = s; break; }
+            if (usage >= start && usage <= end) { 
+                chosen = s; 
+                log.info("Stair step pricing: {} units falls into step {}-{}, flat charge: {}", 
+                        usage, start, end, s.getMonthlyCharge());
+                break; 
+            }
         }
-        if (chosen == null && !steps.isEmpty()) chosen = steps.get(steps.size()-1);
+        
+        // Check if usage exceeds all defined steps (overage scenario)
+        if (chosen == null && !steps.isEmpty()) {
+            int lastStepEnd = steps.get(steps.size() - 1).getUsageThresholdEnd() != null ? 
+                             steps.get(steps.size() - 1).getUsageThresholdEnd() : 0;
+            
+            if (usage > lastStepEnd && dto.getOverageUnitRate() != null && 
+                dto.getOverageUnitRate().compareTo(BigDecimal.ZERO) > 0) {
+                // Usage exceeds all steps - apply overage rate
+                BigDecimal overageRate = dto.getOverageUnitRate();
+                tot = overageRate.multiply(BigDecimal.valueOf(usage));
+                items.add(build("Stair Step Overage Charge", usage + " * " + overageRate, tot));
+                log.info("Stair step overage: {} units exceed last step, charged at {} per unit", 
+                        usage, overageRate);
+            } else {
+                // Fallback to last step
+                chosen = steps.get(steps.size() - 1);
+                log.warn("Stair step pricing: {} units exceed last step, using last step rate as fallback", usage);
+            }
+        }
+        
         if (chosen != null) {
             BigDecimal charge = chosen.getMonthlyCharge() != null ? chosen.getMonthlyCharge() : BigDecimal.ZERO;
-            items.add(build("Stair Step Charge", chosen.getUsageThresholdStart() + "-" + (chosen.getUsageThresholdEnd()!=null? chosen.getUsageThresholdEnd():"∞"), charge));
+            int start = chosen.getUsageThresholdStart() != null ? chosen.getUsageThresholdStart() : 0;
+            int end = chosen.getUsageThresholdEnd() != null ? chosen.getUsageThresholdEnd() : 0;
+            String endLabel = chosen.getUsageThresholdEnd() != null ? String.valueOf(end) : "∞";
+            items.add(build("Stair Step Charge (Step " + start + "-" + endLabel + ")", "Flat fee", charge));
             tot = charge;
         }
+        
         return new PricingResult(items, tot);
     }
 
@@ -318,5 +469,36 @@ public class MeterServiceImpl implements MeterService {
             }
         }
         return BigDecimal.ZERO;
+    }
+    
+    /**
+     * Parse subscription service datetime string and convert to UTC Instant.
+     * Format: "20 Jan, 2026 19:14 IST" -> converts IST to UTC
+     * 
+     * @param dateTimeStr The datetime string from subscription service
+     * @return Instant in UTC timezone
+     */
+    private java.time.Instant parseSubscriptionDateTime(String dateTimeStr) {
+        if (dateTimeStr == null || dateTimeStr.isBlank()) {
+            throw new IllegalArgumentException("DateTime string cannot be null or empty");
+        }
+        
+        // Replace "IST" with actual timezone ID to ensure proper conversion
+        // IST = India Standard Time = Asia/Kolkata = UTC+5:30
+        String normalized = dateTimeStr.replace("IST", "Asia/Kolkata");
+        
+        // Parse with pattern: "dd MMM, yyyy HH:mm" followed by zone ID
+        java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter
+            .ofPattern("dd MMM, yyyy HH:mm z", java.util.Locale.ENGLISH);
+        
+        java.time.ZonedDateTime zonedDateTime = java.time.ZonedDateTime.parse(normalized, formatter);
+        
+        // Convert to UTC Instant
+        java.time.Instant utcInstant = zonedDateTime.toInstant();
+        
+        log.debug("Parsed '{}' -> ZonedDateTime: {} -> UTC Instant: {}", 
+                dateTimeStr, zonedDateTime, utcInstant);
+        
+        return utcInstant;
     }
 }
