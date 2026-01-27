@@ -1,5 +1,6 @@
 package aforo.metering.controller;
 
+import aforo.metering.dto.InvoiceListResponse;
 import aforo.metering.entity.Invoice;
 import aforo.metering.service.InvoiceService;
 import aforo.metering.tenant.TenantContext;
@@ -50,12 +51,13 @@ public class InvoiceController {
 
     @GetMapping
     @Operation(summary = "Get all invoices", description = "Get all invoices for the current organization")
-    public ResponseEntity<List<Invoice>> getAllInvoices() {
+    public ResponseEntity<InvoiceListResponse> getAllInvoices() {
         Long orgId = TenantContext.requireOrganizationId();
         log.info("Getting all invoices for organization: {}", orgId);
         
         List<Invoice> invoices = invoiceService.getInvoicesByOrganization(orgId);
-        return ResponseEntity.ok(invoices);
+        InvoiceListResponse response = new InvoiceListResponse(invoices, invoices.size());
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/customer/{customerId}")
