@@ -83,13 +83,21 @@ public class SecurityConfig {
         // Parse allowed origins
         List<String> originPatterns;
         if (corsAllowedOrigins == null || corsAllowedOrigins.isBlank()) {
-            // Production frontends as fallback
+            // Production frontends and services as fallback
             originPatterns = List.of(
+                "http://ui.dev.aforo.space",
+                "http://product.dev.aforo.space:8080",
+                "http://metering.dev.aforo.space:8092",
+                "http://usage.dev.aforo.space:8081",
+                "http://ingestion.dev.aforo.space:8088",
+                "http://kong.dev.aforo.space:8086",
+                "http://org.dev.aforo.space:8081",
+                "http://quickbooks.dev.aforo.space:8095",
+                "http://subscription.dev.aforo.space:8084",
                 "http://aforo.space",
                 "https://aforo.space",
                 "http://13.115.248.133",
                 "http://54.221.164.5",
-                "http://98.86.167.163:8092",
                 "http://localhost:3000"
             );
         } else {
