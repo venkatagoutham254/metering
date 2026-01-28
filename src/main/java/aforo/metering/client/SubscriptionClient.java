@@ -24,7 +24,7 @@ public class SubscriptionClient {
 
     public SubscriptionClient(
             WebClient.Builder webClientBuilder,
-            @Value("${aforo.subscription-service.base-url:http://34.228.66.74:8084}") String subscriptionServiceBaseUrl) {
+            @Value("${aforo.subscription-service.base-url:http://subscription.dev.aforo.space:8084}") String subscriptionServiceBaseUrl) {
         this.subscriptionServiceBaseUrl = subscriptionServiceBaseUrl;
         this.webClient = webClientBuilder.baseUrl(subscriptionServiceBaseUrl).build();
     }

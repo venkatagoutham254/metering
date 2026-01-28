@@ -22,7 +22,7 @@ public class QuickBooksWebhookClient {
 
     public QuickBooksWebhookClient(
             WebClient.Builder webClientBuilder,
-            @Value("${aforo.quickbooks-integration.base-url:http://44.204.127.27:8095}") String quickbooksBaseUrl) {
+            @Value("${aforo.quickbooks-integration.base-url:http://quickbooks.dev.aforo.space:8095}") String quickbooksBaseUrl) {
         this.quickbooksBaseUrl = quickbooksBaseUrl;
         this.webClient = webClientBuilder.baseUrl(quickbooksBaseUrl).build();
         log.info("🔗 QuickBooks Integration Client initialized with base URL: {}", quickbooksBaseUrl);

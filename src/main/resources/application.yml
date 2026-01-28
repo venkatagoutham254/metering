@@ -59,20 +59,20 @@ aforo:
   jwt:
     secret: ${JWT_SECRET:change-me-please-change-me-32-bytes-min}
   cors:
-    allowed-origins: "http://13.115.248.133,http://34.228.66.74:8084,http://44.201.19.187:8081,http://54.221.164.5,http://3.208.93.68:8080,http://54.146.189.144:8081,http://98.86.167.163:8092,http://44.204.127.27:8095,http://localhost:3000,http://localhost:8092,http://aforo.space,https://aforo.space"
+    allowed-origins: "http://ui.dev.aforo.space,http://product.dev.aforo.space:8080,http://metering.dev.aforo.space:8092,http://usage.dev.aforo.space:8081,http://ingestion.dev.aforo.space:8088,http://kong.dev.aforo.space:8086,http://org.dev.aforo.space:8081,http://quickbooks.dev.aforo.space:8095,http://subscription.dev.aforo.space:8084,http://13.115.248.133,http://54.221.164.5,http://localhost:3000,http://localhost:8092,http://aforo.space,https://aforo.space"
     allowed-methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
     allowed-headers: "Authorization,Content-Type,X-Organization-Id"
     allow-credentials: true
   quickbooks-integration:
-    base-url: ${QUICKBOOKS_INTEGRATION_URL:http://44.204.127.27:8095}
+    base-url: ${QUICKBOOKS_INTEGRATION_URL:http://quickbooks.dev.aforo.space:8095}
   subscription-service:
-    base-url: ${SUBSCRIPTION_SERVICE_URL:http://34.228.66.74:8084}
+    base-url: ${SUBSCRIPTION_SERVICE_URL:http://subscription.dev.aforo.space:8084}
   clients:
     billableMetrics:
-      baseUrl: "http://54.146.189.144:8081"
+      baseUrl: "http://usage.dev.aforo.space:8081"
     productRatePlan:
-      baseUrl: "http://3.208.93.68:8080"
+      baseUrl: "http://product.dev.aforo.space:8080"
     subscription:
-      baseUrl: "http://34.228.66.74:8084"
+      baseUrl: "http://subscription.dev.aforo.space:8084"
     customer:
-      baseUrl: http://44.201.19.187:8081
+      baseUrl: http://org.dev.aforo.space:8081
