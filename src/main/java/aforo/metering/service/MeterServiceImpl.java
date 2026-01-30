@@ -131,9 +131,47 @@ public class MeterServiceImpl implements MeterService {
                 metricId
         );
 
-        int usage = eventCount.intValue(); // Each event counts as 1 unit
+        int actualUsage = eventCount.intValue(); // Actual events from database
+        int billedUsage = actualUsage; // Usage used for billing (after freemium/minimum adjustments)
         List<MeterResponse.LineItem> lines = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
+        
+        // Track freemium free units applied
+        int freeUnitsApplied = 0;
+        
+        // STEP 1: Apply Freemium - reduce billed usage before pricing
+        if (ratePlan.getFreemiums() != null && !ratePlan.getFreemiums().isEmpty()) {
+            int totalFreeUnits = ratePlan.getFreemiums().stream()
+                    .map(f -> f.getFreeUnits() != null ? f.getFreeUnits() : 0)
+                    .reduce(0, Integer::sum);
+            if (totalFreeUnits > 0) {
+                freeUnitsApplied = Math.min(totalFreeUnits, actualUsage);
+                billedUsage = Math.max(0, actualUsage - freeUnitsApplied);
+                log.info("Freemium: Reduced billed usage from {} to {} (applied {} free units)", 
+                        actualUsage, billedUsage, freeUnitsApplied);
+            }
+        }
+        
+        // STEP 2: Apply Minimum Usage - increase billed usage if below minimum
+        int minimumUsageRequired = 0;
+        if (ratePlan.getMinimumCommitments() != null && !ratePlan.getMinimumCommitments().isEmpty()) {
+            for (RatePlanDTO.MinimumCommitmentDTO commitment : ratePlan.getMinimumCommitments()) {
+                if (commitment == null) continue;
+                Integer minUsage = commitment.getMinimumUsage();
+                if (minUsage != null && minUsage > 0 && minUsage > minimumUsageRequired) {
+                    minimumUsageRequired = minUsage;
+                }
+            }
+            if (minimumUsageRequired > 0 && billedUsage < minimumUsageRequired) {
+                int shortfall = minimumUsageRequired - billedUsage;
+                log.info("Minimum Usage: Increasing billed usage from {} to {} (shortfall: {} units)", 
+                        billedUsage, minimumUsageRequired, shortfall);
+                billedUsage = minimumUsageRequired;
+            }
+        }
+        
+        // Use billedUsage for all pricing calculations below
+        int usage = billedUsage;
 
         // --- BASE PRICING MODELS (copied from estimator) ---
         if (ratePlan.getFlatFee() != null) {
@@ -198,38 +236,22 @@ public class MeterServiceImpl implements MeterService {
             }
         }
 
-        // Freemium
-        if (ratePlan.getFreemiums() != null && !ratePlan.getFreemiums().isEmpty()) {
-            int freeUnits = ratePlan.getFreemiums().stream()
-                    .map(f -> f.getFreeUnits() != null ? f.getFreeUnits() : 0)
-                    .reduce(0, Integer::sum);
-            if (freeUnits > 0) {
-                BigDecimal perUnit = determinePerUnit(ratePlan);
-                if (perUnit != null && perUnit.compareTo(BigDecimal.ZERO) > 0) {
-                    int appliedFree = Math.min(freeUnits, usage);
-                    BigDecimal credit = perUnit.multiply(BigDecimal.valueOf(appliedFree));
-                    if (credit.compareTo(BigDecimal.ZERO) > 0) {
-                        lines.add(build("Freemium Credit", appliedFree + " free units", credit.negate()));
-                        total = total.subtract(credit);
-                    }
-                }
-            }
+        // STEP 3: Add freemium line item for transparency (already applied to usage above)
+        if (freeUnitsApplied > 0) {
+            lines.add(build("Freemium Credit", 
+                    freeUnitsApplied + " free units applied (actual usage: " + actualUsage + ", billed: " + billedUsage + ")", 
+                    BigDecimal.ZERO));
         }
 
-        // Minimum Commitment
-        if (ratePlan.getMinimumCommitments() != null && !ratePlan.getMinimumCommitments().isEmpty()) {
-            BigDecimal minAmt = ratePlan.getMinimumCommitments().stream()
-                    .map(m -> m.getMinimumAmount() != null ? m.getMinimumAmount() : BigDecimal.ZERO)
-                    .max(Comparator.naturalOrder())
-                    .orElse(BigDecimal.ZERO);
-            if (minAmt.compareTo(BigDecimal.ZERO) > 0 && total.compareTo(minAmt) < 0) {
-                BigDecimal uplift = minAmt.subtract(total);
-                lines.add(build("Minimum Commitment Uplift", "Adjusted to minimum", uplift));
-                total = minAmt;
-            }
+        // STEP 4: Add minimum usage line item for transparency (already applied to usage above)
+        if (minimumUsageRequired > 0 && billedUsage >= minimumUsageRequired && actualUsage < minimumUsageRequired) {
+            int shortfall = minimumUsageRequired - actualUsage;
+            lines.add(build("Minimum Usage Commitment", 
+                    "Billed for minimum " + minimumUsageRequired + " units (actual: " + actualUsage + ", added: " + shortfall + ")", 
+                    BigDecimal.ZERO));
         }
-
-        // Discounts
+        
+        // STEP 5: Apply Discounts BEFORE minimum charge enforcement
         if (ratePlan.getDiscounts() != null && !ratePlan.getDiscounts().isEmpty()) {
             LocalDate today = LocalDate.now();
             for (RatePlanDTO.DiscountDTO d : ratePlan.getDiscounts()) {
@@ -273,10 +295,28 @@ public class MeterServiceImpl implements MeterService {
                 }
             }
         }
+        
+        // STEP 6: Minimum Charge Enforcement - FINAL FLOOR applied after discounts
+        if (ratePlan.getMinimumCommitments() != null && !ratePlan.getMinimumCommitments().isEmpty()) {
+            BigDecimal maxMinimumCharge = ratePlan.getMinimumCommitments().stream()
+                    .filter(m -> m != null && m.getMinimumAmount() != null)
+                    .map(RatePlanDTO.MinimumCommitmentDTO::getMinimumAmount)
+                    .max(Comparator.naturalOrder())
+                    .orElse(BigDecimal.ZERO);
+            
+            if (maxMinimumCharge.compareTo(BigDecimal.ZERO) > 0 && total.compareTo(maxMinimumCharge) < 0) {
+                BigDecimal uplift = maxMinimumCharge.subtract(total);
+                lines.add(build("Minimum Charge Commitment", 
+                        "Final floor adjusted to minimum charge of " + maxMinimumCharge + " (after discounts)", uplift));
+                total = maxMinimumCharge;
+                log.info("Applied minimum charge floor: increased from {} to {} (uplift: {}) after discounts", 
+                        total.subtract(uplift), maxMinimumCharge, uplift);
+            }
+        }
 
         return MeterResponse.builder()
                 .modelType(ratePlan.getBillingFrequency())
-                .eventCount(usage)
+                .eventCount(actualUsage)  // Return actual usage, not billed usage
                 .breakdown(lines)
                 .total(total.setScale(2, RoundingMode.HALF_UP))
                 .build();
@@ -408,23 +448,34 @@ public class MeterServiceImpl implements MeterService {
             }
         }
         
-        // Check if usage exceeds all defined steps (overage scenario)
+        // Check if usage is outside the defined steps
         if (chosen == null && !steps.isEmpty()) {
+            int firstStepStart = steps.get(0).getUsageThresholdStart() != null ? 
+                                steps.get(0).getUsageThresholdStart() : 0;
             int lastStepEnd = steps.get(steps.size() - 1).getUsageThresholdEnd() != null ? 
-                             steps.get(steps.size() - 1).getUsageThresholdEnd() : 0;
+                             steps.get(steps.size() - 1).getUsageThresholdEnd() : Integer.MAX_VALUE;
             
-            if (usage > lastStepEnd && dto.getOverageUnitRate() != null && 
-                dto.getOverageUnitRate().compareTo(BigDecimal.ZERO) > 0) {
-                // Usage exceeds all steps - apply overage rate
-                BigDecimal overageRate = dto.getOverageUnitRate();
-                tot = overageRate.multiply(BigDecimal.valueOf(usage));
-                items.add(build("Stair Step Overage Charge", usage + " * " + overageRate, tot));
-                log.info("Stair step overage: {} units exceed last step, charged at {} per unit", 
-                        usage, overageRate);
-            } else {
-                // Fallback to last step
-                chosen = steps.get(steps.size() - 1);
-                log.warn("Stair step pricing: {} units exceed last step, using last step rate as fallback", usage);
+            // Usage is below the first step - charge nothing
+            if (usage < firstStepStart) {
+                log.info("Stair step pricing: {} units is below first step threshold ({}), no charge", 
+                        usage, firstStepStart);
+                // Leave chosen as null, tot as ZERO
+            }
+            // Usage exceeds all steps - apply overage or fallback
+            else if (usage > lastStepEnd) {
+                if (dto.getOverageUnitRate() != null && dto.getOverageUnitRate().compareTo(BigDecimal.ZERO) > 0) {
+                    // Apply overage rate
+                    BigDecimal overageRate = dto.getOverageUnitRate();
+                    tot = overageRate.multiply(BigDecimal.valueOf(usage));
+                    items.add(build("Stair Step Overage Charge", usage + " * " + overageRate, tot));
+                    log.info("Stair step overage: {} units exceed last step, charged at {} per unit", 
+                            usage, overageRate);
+                } else {
+                    // Fallback to last step only when usage actually exceeds
+                    chosen = steps.get(steps.size() - 1);
+                    log.warn("Stair step pricing: {} units exceed last step (max: {}), using last step rate as fallback", 
+                            usage, lastStepEnd);
+                }
             }
         }
         
