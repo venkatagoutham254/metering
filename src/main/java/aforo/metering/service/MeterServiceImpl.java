@@ -61,33 +61,23 @@ public class MeterServiceImpl implements MeterService {
                 log.info("Automatic metering mode: fetching subscription {} billing period", subscriptionId);
                 
                 try {
-                    // Use subscription's current billing period
-                    String billingPeriodStart = subscription.getCurrentBillingPeriodStart();
-                    String billingPeriodEnd = subscription.getCurrentBillingPeriodEnd();
+                    // Use subscription's current billing period (now as Instant)
+                    java.time.Instant billingPeriodStart = subscription.getCurrentBillingPeriodStart();
+                    java.time.Instant billingPeriodEnd = subscription.getCurrentBillingPeriodEnd();
                     
-                    // Parse billing period start
-                    if (billingPeriodStart != null && !billingPeriodStart.isBlank()) {
-                        try {
-                            from = parseSubscriptionDateTime(billingPeriodStart);
-                            log.info("Using subscription billing period start: {} (UTC)", from);
-                        } catch (Exception parseEx) {
-                            log.warn("Could not parse billing period start '{}', using fallback: {}", billingPeriodStart, parseEx.getMessage());
-                            from = java.time.Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
-                        }
+                    // Use billing period start
+                    if (billingPeriodStart != null) {
+                        from = billingPeriodStart;
+                        log.info("Using subscription billing period start: {} (UTC)", from);
                     } else {
                         from = java.time.Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
                         log.warn("Subscription {} has no billing period start, using 1 hour ago", subscriptionId);
                     }
                     
-                    // Parse billing period end
-                    if (billingPeriodEnd != null && !billingPeriodEnd.isBlank()) {
-                        try {
-                            to = parseSubscriptionDateTime(billingPeriodEnd);
-                            log.info("Using subscription billing period end: {} (UTC)", to);
-                        } catch (Exception parseEx) {
-                            log.warn("Could not parse billing period end '{}', using current time: {}", billingPeriodEnd, parseEx.getMessage());
-                            to = java.time.Instant.now();
-                        }
+                    // Use billing period end
+                    if (billingPeriodEnd != null) {
+                        to = billingPeriodEnd;
+                        log.info("Using subscription billing period end: {} (UTC)", to);
                     } else {
                         to = java.time.Instant.now();
                         log.warn("Subscription {} has no billing period end, using current time", subscriptionId);
@@ -522,34 +512,5 @@ public class MeterServiceImpl implements MeterService {
         return BigDecimal.ZERO;
     }
     
-    /**
-     * Parse subscription service datetime string and convert to UTC Instant.
-     * Format: "20 Jan, 2026 19:14 IST" -> converts IST to UTC
-     * 
-     * @param dateTimeStr The datetime string from subscription service
-     * @return Instant in UTC timezone
-     */
-    private java.time.Instant parseSubscriptionDateTime(String dateTimeStr) {
-        if (dateTimeStr == null || dateTimeStr.isBlank()) {
-            throw new IllegalArgumentException("DateTime string cannot be null or empty");
-        }
-        
-        // Replace "IST" with actual timezone ID to ensure proper conversion
-        // IST = India Standard Time = Asia/Kolkata = UTC+5:30
-        String normalized = dateTimeStr.replace("IST", "Asia/Kolkata");
-        
-        // Parse with pattern: "dd MMM, yyyy HH:mm" followed by zone ID
-        java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter
-            .ofPattern("dd MMM, yyyy HH:mm z", java.util.Locale.ENGLISH);
-        
-        java.time.ZonedDateTime zonedDateTime = java.time.ZonedDateTime.parse(normalized, formatter);
-        
-        // Convert to UTC Instant
-        java.time.Instant utcInstant = zonedDateTime.toInstant();
-        
-        log.debug("Parsed '{}' -> ZonedDateTime: {} -> UTC Instant: {}", 
-                dateTimeStr, zonedDateTime, utcInstant);
-        
-        return utcInstant;
-    }
+    // parseSubscriptionDateTime method removed - no longer needed since subscription service returns Instant directly
 }
