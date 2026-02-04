@@ -4,10 +4,11 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.time.Instant;
 
 /**
  * DTO for subscription response from subscription service.
- * Note: Date fields are String to handle external service's custom date format.
+ * Date fields are Instant to match subscription service's ISO-8601 format.
  * Billing cycle fields added to support automatic metering.
  */
 @Data
@@ -20,8 +21,8 @@ public class SubscriptionResponse {
     private Long productId;
     private Long ratePlanId;
     private String status;
-    private String createdOn;  // Changed to String to handle "20 Nov, 2025 10:08 IST" format
-    private String lastUpdated;  // Changed to String to handle "20 Nov, 2025 10:08 IST" format
+    private Instant createdOn;
+    private Instant lastUpdated;
     private String paymentType;
     private String adminNotes;
     private Long customerId;  // This is the field we actually need
@@ -29,10 +30,10 @@ public class SubscriptionResponse {
     private String ratePlanName;
     private Long organizationId;
     
-    // Billing cycle fields - kept as String to match Subscription Service format
-    private String currentBillingPeriodStart;  // Format: "26 Dec, 2025 11:07 IST"
-    private String currentBillingPeriodEnd;    // Format: "26 Jan, 2026 11:07 IST"
-    private String nextBillingTimestamp;       // Format: "26 Jan, 2026 11:07 IST"
+    // Billing cycle fields - now Instant to match Subscription Service standardization
+    private Instant currentBillingPeriodStart;
+    private Instant currentBillingPeriodEnd;
+    private Instant nextBillingTimestamp;
     private String billingAnchorInfo;
     private Boolean autoRenew;
     private String billingFrequency;

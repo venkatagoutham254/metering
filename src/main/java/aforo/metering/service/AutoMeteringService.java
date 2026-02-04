@@ -60,38 +60,23 @@ public class AutoMeteringService {
                 try {
                     SubscriptionResponse subscription = subscriptionClient.getSubscription(subscriptionId);
                     
-                    // Use subscription's current billing period
-                    String billingPeriodStart = subscription.getCurrentBillingPeriodStart();
-                    String billingPeriodEnd = subscription.getCurrentBillingPeriodEnd();
+                    // Use subscription's current billing period (now as Instant)
+                    Instant billingPeriodStart = subscription.getCurrentBillingPeriodStart();
+                    Instant billingPeriodEnd = subscription.getCurrentBillingPeriodEnd();
                     
-                    java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter
-                        .ofPattern("dd MMM, yyyy HH:mm z", java.util.Locale.ENGLISH);
-                    
-                    // Parse billing period start
-                    if (billingPeriodStart != null && !billingPeriodStart.isBlank()) {
-                        try {
-                            java.time.ZonedDateTime zdtStart = java.time.ZonedDateTime.parse(billingPeriodStart, formatter);
-                            from = zdtStart.toInstant();
-                            log.info("Using subscription billing period start: {}", from);
-                        } catch (Exception parseEx) {
-                            log.warn("Could not parse billing period start '{}', using fallback", billingPeriodStart);
-                            from = Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
-                        }
+                    // Use billing period start
+                    if (billingPeriodStart != null) {
+                        from = billingPeriodStart;
+                        log.info("Using subscription billing period start: {}", from);
                     } else {
                         from = Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
                         log.warn("Subscription {} has no billing period start, using 1 hour ago", subscriptionId);
                     }
                     
-                    // Parse billing period end
-                    if (billingPeriodEnd != null && !billingPeriodEnd.isBlank()) {
-                        try {
-                            java.time.ZonedDateTime zdtEnd = java.time.ZonedDateTime.parse(billingPeriodEnd, formatter);
-                            to = zdtEnd.toInstant();
-                            log.info("Using subscription billing period end: {}", to);
-                        } catch (Exception parseEx) {
-                            log.warn("Could not parse billing period end '{}', using current time", billingPeriodEnd);
-                            to = Instant.now();
-                        }
+                    // Use billing period end
+                    if (billingPeriodEnd != null) {
+                        to = billingPeriodEnd;
+                        log.info("Using subscription billing period end: {}", to);
                     } else {
                         to = Instant.now();
                         log.warn("Subscription {} has no billing period end, using current time", subscriptionId);
@@ -159,29 +144,21 @@ public class AutoMeteringService {
                 try {
                     SubscriptionResponse subscription = subscriptionClient.getSubscription(subscriptionId);
                     
-                    // Use subscription's current billing period
-                    // Note: Subscription Service returns dates as Strings in format "26 Dec, 2025 11:07 IST"
-                    // For simplicity, we'll use subscription creation time (already ingested events are recent)
-                    String createdOnStr = subscription.getCreatedOn();
+                    // Use subscription's billing period or creation time (now as Instant)
+                    Instant billingPeriodStart = subscription.getCurrentBillingPeriodStart();
+                    Instant createdOn = subscription.getCreatedOn();
                     
-                    if (createdOnStr != null && !createdOnStr.isBlank()) {
-                        // Parse custom format: "26 Dec, 2025 11:07 IST"
-                        // Since parsing this format is complex, we'll use a simpler approach:
-                        // Use subscription's creation date as approximate start of billing period
-                        try {
-                            java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter
-                                .ofPattern("dd MMM, yyyy HH:mm z", java.util.Locale.ENGLISH);
-                            java.time.ZonedDateTime zdt = java.time.ZonedDateTime.parse(createdOnStr, formatter);
-                            from = zdt.toInstant();
-                            log.info("Using subscription creation time as billing period start: {}", from);
-                        } catch (Exception parseEx) {
-                            log.warn("Could not parse subscription date '{}', using fallback", createdOnStr);
-                            from = Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
-                        }
+                    // Prefer billing period start, fallback to creation time
+                    if (billingPeriodStart != null) {
+                        from = billingPeriodStart;
+                        log.info("Using subscription billing period start: {}", from);
+                    } else if (createdOn != null) {
+                        from = createdOn;
+                        log.info("Using subscription creation time as billing period start: {}", from);
                     } else {
-                        // Fallback if creation date not available
+                        // Fallback if neither available
                         from = Instant.now().minus(1, java.time.temporal.ChronoUnit.HOURS);
-                        log.warn("Subscription {} has no creation date, using 1 hour ago", subscriptionId);
+                        log.warn("Subscription {} has no date information, using 1 hour ago", subscriptionId);
                     }
                     
                     // Use current time as 'to' for cumulative calculation

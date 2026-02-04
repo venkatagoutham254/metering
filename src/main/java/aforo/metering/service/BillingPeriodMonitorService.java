@@ -43,10 +43,6 @@ public class BillingPeriodMonitorService {
     private final InvoiceRepository invoiceRepository;
     private final JwtTokenGenerator jwtTokenGenerator;
 
-    // Date format used by Subscription Service: "26 Dec, 2025 11:07 IST"
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter
-            .ofPattern("dd MMM, yyyy HH:mm z", Locale.ENGLISH);
-
     /**
      * Scheduled job that runs every 10 minutes to check for ended billing periods.
      * 10-minute interval ensures we catch hourly billing cycles very promptly.
@@ -164,24 +160,21 @@ public class BillingPeriodMonitorService {
                                           String serviceToken) {
         
         Long subscriptionId = subscription.getSubscriptionId();
-        String billingPeriodEndStr = subscription.getCurrentBillingPeriodEnd();
-        String billingPeriodStartStr = subscription.getCurrentBillingPeriodStart();
+        Instant periodEnd = subscription.getCurrentBillingPeriodEnd();
+        Instant periodStart = subscription.getCurrentBillingPeriodStart();
         
         // Check if subscription has billing period information
-        if (billingPeriodEndStr == null || billingPeriodEndStr.isBlank()) {
+        if (periodEnd == null) {
             log.debug("Subscription {} has no billing period end date. Skipping.", subscriptionId);
             return false;
         }
         
-        if (billingPeriodStartStr == null || billingPeriodStartStr.isBlank()) {
+        if (periodStart == null) {
             log.debug("Subscription {} has no billing period start date. Skipping.", subscriptionId);
             return false;
         }
         
         try {
-            // Parse billing period dates
-            Instant periodStart = parseDate(billingPeriodStartStr);
-            Instant periodEnd = parseDate(billingPeriodEndStr);
             Instant now = Instant.now();
             
             // Check if billing period has ended
@@ -236,12 +229,9 @@ public class BillingPeriodMonitorService {
         Long ratePlanId = subscription.getRatePlanId();
         
         try {
-            // Parse billing period dates
-            String billingPeriodStartStr = subscription.getCurrentBillingPeriodStart();
-            String billingPeriodEndStr = subscription.getCurrentBillingPeriodEnd();
-            
-            Instant periodStart = parseDate(billingPeriodStartStr);
-            Instant periodEnd = parseDate(billingPeriodEndStr);
+            // Get billing period dates (now as Instant)
+            Instant periodStart = subscription.getCurrentBillingPeriodStart();
+            Instant periodEnd = subscription.getCurrentBillingPeriodEnd();
             
             log.info("💰 Generating invoice for subscription {} " +
                     "(customer: {}, period: {} to {})", 
@@ -295,29 +285,5 @@ public class BillingPeriodMonitorService {
         }
     }
 
-    /**
-     * Parse date string in Subscription Service format.
-     * Format: "26 Dec, 2025 11:07 IST"
-     * 
-     * @param dateStr Date string to parse
-     * @return Instant representation
-     */
-    private Instant parseDate(String dateStr) {
-        try {
-            // Explicitly handle IST which is ambiguous (can be India, Ireland, Israel)
-            // We assume India Standard Time (UTC+05:30) for this application
-            if (dateStr != null && dateStr.endsWith(" IST")) {
-                String datePart = dateStr.substring(0, dateStr.length() - 4); // Remove " IST"
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd MMM, yyyy HH:mm", Locale.ENGLISH)
-                        .withZone(java.time.ZoneId.of("Asia/Kolkata"));
-                return ZonedDateTime.parse(datePart, formatter).toInstant();
-            }
-
-            ZonedDateTime zonedDateTime = ZonedDateTime.parse(dateStr, DATE_FORMATTER);
-            return zonedDateTime.toInstant();
-        } catch (Exception e) {
-            log.error("Failed to parse date string '{}': {}", dateStr, e.getMessage());
-            throw new RuntimeException("Invalid date format: " + dateStr, e);
-        }
-    }
+    // parseDate method removed - no longer needed since subscription service returns Instant directly
 }

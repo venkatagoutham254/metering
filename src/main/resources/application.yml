@@ -15,7 +15,7 @@ spring:
         pool-name: MeteringDB-Pool
     # Secondary datasource - data_ingestion_db (read ingestion_event)
     secondary:
-      jdbc-url: ${SECONDARY_DATASOURCE_URL:jdbc:postgresql://35.173.186.55:5436/data_ingestion_db?options=-c%20TimeZone=UTC}
+      jdbc-url: ${SECONDARY_DATASOURCE_URL:jdbc:postgresql://ingestion.dev.aforo.space:5436/data_ingestion_db?options=-c%20TimeZone=UTC}
       username: ${SECONDARY_DATASOURCE_USERNAME:postgres}
       password: ${SECONDARY_DATASOURCE_PASSWORD:postgres}
       driver-class-name: org.postgresql.Driver
